@@ -239,6 +239,34 @@ def cancel_job(jid: str):
     return {"ok": True}
 
 
+# ---------------- ChatGPT sheet (manual redraw) ----------------
+
+@app.get("/api/projects/{pid}/gptsheet")
+def list_gptsheets(pid: str):
+    return list(reversed(_load(pid).get("gpt_sheets", [])))
+
+
+@app.post("/api/projects/{pid}/gptsheet")
+def make_gptsheet(pid: str, body: dict = Body(...)):
+    _load(pid)
+    from .pipeline import gptsheet
+    try:
+        return gptsheet.build(pid, body.get("asset_ids") or [])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/projects/{pid}/gptsheet/{sid}/import")
+async def import_gptsheet(pid: str, sid: str, file: UploadFile = File(...)):
+    _load(pid)
+    from .pipeline import gptsheet
+    data = await file.read()
+    try:
+        return gptsheet.import_result(pid, sid, data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # ---------------- files ----------------
 
 @app.get("/files/{pid}/{path:path}")

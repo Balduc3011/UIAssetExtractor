@@ -295,7 +295,8 @@ async function renderProject(pid) {
         <button class="btn" data-job="analyze" title="Claude đặt tên & tách từng asset">2 Phân tích AI</button>
         <button class="btn" data-job="extract" title="Tách nền, xoá chữ, cắt (local)">3 Trích xuất</button>
         <button class="btn" data-job="qa" title="Claude chấm điểm từng asset">4 QA</button>
-        <button class="btn" id="btnRegen" title="Vẽ lại asset đã tick bằng GPT">5 Vẽ lại GPT</button>
+        <button class="btn" id="btnRegen" title="Vẽ lại asset đã tick bằng GPT (API, tốn credit)">5 Vẽ lại GPT</button>
+        <button class="btn" id="btnChat" title="Ghép asset đã tick thành 1 sheet + prompt để vẽ lại trên chatgpt.com (không cần API). Không tick gì = xem sheet đã tạo">5b ChatGPT</button>
         <button class="btn" id="btnExport">6 Export</button>
         <span class="sep"></span>
         <button class="btn" id="btnDraw" title="Vẽ thêm box (phím B)">＋ Box</button>
@@ -315,6 +316,7 @@ async function renderProject(pid) {
 
   $$("[data-job]").forEach((b) => (b.onclick = () => runStep(b.dataset.job)));
   $("#btnRegen").onclick = () => regenSelected();
+  $("#btnChat").onclick = () => chatgptSheet();
   $("#btnExport").onclick = () => { W.tab = "export"; renderPane(); };
   $("#btnDraw").onclick = () => setMode(W.mode === "draw" ? "select" : "draw");
   $("#zIn").onclick = () => setZoom(W.zoom * 1.25);
@@ -552,6 +554,7 @@ function renderList(pane) {
         <button class="btn sm" data-bulk="extract">Trích xuất lại</button>
         <button class="btn sm" data-bulk="qa">QA</button>
         <button class="btn sm" data-bulk="regen">Vẽ lại GPT</button>
+        <button class="btn sm" data-bulk="chatgpt">ChatGPT sheet</button>
         <button class="btn sm danger" data-bulk="del">Xoá</button>` : ""}
     </div>
     <div class="alist">${items.map((a) => {
@@ -599,6 +602,7 @@ async function bulk(act) {
   } else if (act === "extract") return startJob(pid, "extract", { asset_ids: ids });
   else if (act === "qa") return startJob(pid, "qa", { asset_ids: ids });
   else if (act === "regen") return regenSelected(ids);
+  else if (act === "chatgpt") return chatgptSheet(ids);
   await refresh();
 }
 
@@ -627,7 +631,7 @@ function renderDetail(pane) {
     <div class="preview">${u ? `<img src="${u}">` : `<span class="muted small">Chưa trích xuất</span>`}</div>
     ${a.versions.length ? `<h3>Phiên bản</h3><div class="versions">${a.versions.map((v, i) => `
       <div class="v ${i === a.active ? "on" : ""}" data-ver="${i}"><img src="${vurl(a, i)}">
-      <small>${v.kind === "regen" ? "GPT" : "Cắt"} · ${v.w}×${v.h}</small></div>`).join("")}</div>` : ""}
+      <small>${v.kind === "regen" ? (v.source === "chatgpt" ? "ChatGPT" : "GPT") : "Cắt"} · ${v.w}×${v.h}</small></div>`).join("")}</div>` : ""}
     ${a.qa ? `<h3>QA: <span class="score ${scoreCls(a.qa)}">${a.qa.score}/10</span> ${esc(a.qa.recommend || "")}</h3>
       ${a.qa.issues?.length ? `<ul class="issues">${a.qa.issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}` : ""}
     ${a.error ? `<p class="small" style="color:var(--bad)">${esc(a.error)}</p>` : ""}
@@ -712,3 +716,125 @@ function renderExport(pane) {
 
 /* ---------------- boot ---------------- */
 loadSettings().then(route).catch((e) => { $("#view").innerHTML = `<div class="page">Không kết nối được backend: ${esc(e.message)}</div>`; });
+
+/* ---------------- ChatGPT sheet (manual redraw, no API) ---------------- */
+const CS = { sheets: [], target: null };
+
+async function chatgptSheet(ids) {
+  ids = ids || [...W.checked];
+  if (!ids.length && W.sel) ids = [W.sel];
+  const pid = W.proj.id;
+  try {
+    CS.sheets = ids.length
+      ? await api("POST", `/api/projects/${pid}/gptsheet`, { asset_ids: ids })
+      : await api("GET", `/api/projects/${pid}/gptsheet`);
+  } catch (e) { return toast(e.message, true); }
+  if (!CS.sheets.length) return toast("Tick chọn các asset cần vẽ lại rồi bấm lại.", true);
+  CS.target = (CS.sheets.find((s) => !s.imported) || CS.sheets[0]).id;
+  renderSheetModal(!ids.length);
+}
+
+function renderSheetModal(isList) {
+  closeSheetModal();
+  const pid = W.proj.id;
+  const m = document.createElement("div");
+  m.className = "modal";
+  m.id = "csModal";
+  m.innerHTML = `<div class="mbox">
+    <div class="mhead"><b>Vẽ lại bằng ChatGPT (thủ công)</b>
+      <span class="small muted">${isList ? "Các sheet đã tạo" : `${CS.sheets.length} sheet`}</span>
+      <button class="btn sm ghost" id="csClose">✕</button></div>
+    <ol class="small muted csHelp">
+      <li><b>Copy ảnh</b> (hoặc Tải ảnh) → dán vào <a href="https://chatgpt.com/" target="_blank" rel="noopener">chatgpt.com</a>.</li>
+      <li><b>Copy prompt</b> → dán cùng tin nhắn, gửi.</li>
+      <li>Tải ảnh ChatGPT trả về → kéo thả vào ô bên dưới sheet (hoặc copy ảnh rồi <kbd>Ctrl+V</kbd> ở đây). Tool tự tìm và cắt từng hình (nền trong suốt hoặc nền 1 màu đều được, lệch vị trí cũng không sao).</li>
+    </ol>
+    ${CS.sheets.map((s) => `<div class="cs ${s.id === CS.target ? "on" : ""}" data-sid="${s.id}">
+      <div class="csTop">
+        <a href="/files/${pid}/${s.file}" target="_blank"><img src="/files/${pid}/${s.file}"></a>
+        <div class="csSide">
+          <div class="small">${s.slots.length} asset · ${s.size[0]}×${s.size[1]} · nền trong suốt
+            ${s.imported ? ` · <span style="color:var(--ok)">đã nhập</span>` : ""}</div>
+          <div class="small muted csNames">${s.slots.map((x, i) => `${i + 1}. ${esc(x.name)}`).join("<br>")}</div>
+          <div class="actions">
+            <button class="btn sm primary" data-cimg="${s.id}">Copy ảnh</button>
+            <a class="btn sm" href="/files/${pid}/${s.file}" download="${s.id}.png">Tải ảnh</a>
+            <button class="btn sm primary" data-cprompt="${s.id}">Copy prompt</button>
+          </div>
+        </div>
+      </div>
+      <textarea class="csPrompt" title="Sửa được trước khi copy">${esc(s.prompt)}</textarea>
+      <label class="drop csDrop">Kéo thả ảnh kết quả từ ChatGPT vào đây, <kbd>Ctrl+V</kbd>, hoặc <b>bấm để chọn</b>
+        <input type="file" accept="image/*" hidden data-up="${s.id}"></label>
+      <div class="csRes" id="res_${s.id}"></div>
+    </div>`).join("")}
+  </div>`;
+  document.body.appendChild(m);
+  $("#csClose").onclick = closeSheetModal;
+  m.onclick = (e) => { if (e.target === m) closeSheetModal(); };
+  $$(".cs", m).forEach((c) => (c.onmouseenter = c.onclick = () => {
+    CS.target = c.dataset.sid;
+    $$(".cs", m).forEach((x) => x.classList.toggle("on", x === c));
+  }));
+  $$("[data-cprompt]", m).forEach((b) => (b.onclick = async () => {
+    const text = b.closest(".cs").querySelector("textarea").value;
+    try { await navigator.clipboard.writeText(text); toast("Đã copy prompt"); }
+    catch { b.closest(".cs").querySelector("textarea").select(); toast("Không copy được – bôi đen rồi Ctrl+C", true); }
+  }));
+  $$("[data-cimg]", m).forEach((b) => (b.onclick = async () => {
+    const s = CS.sheets.find((x) => x.id === b.dataset.cimg);
+    try {
+      const blob = await (await fetch(`/files/${pid}/${s.file}`)).blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Đã copy ảnh – dán vào ChatGPT bằng Ctrl+V");
+    } catch { toast("Trình duyệt không cho copy ảnh – dùng nút Tải ảnh", true); }
+  }));
+  $$("[data-up]", m).forEach((inp) => {
+    const drop = inp.closest(".csDrop");
+    inp.onchange = () => inp.files[0] && importSheet(inp.dataset.up, inp.files[0]);
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+      const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
+      if (f) importSheet(inp.dataset.up, f);
+    };
+  });
+  document.addEventListener("paste", onSheetPaste);
+}
+
+function closeSheetModal() {
+  const m = $("#csModal");
+  if (m) m.remove();
+  document.removeEventListener("paste", onSheetPaste);
+}
+
+function onSheetPaste(e) {
+  const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith("image/"));
+  if (f && CS.target) { e.preventDefault(); importSheet(CS.target, f); }
+}
+
+async function importSheet(sid, file) {
+  const box = $(`#res_${sid}`);
+  if (box) box.innerHTML = `<span class="small muted">Đang cắt asset…</span>`;
+  const fd = new FormData();
+  fd.append("file", file, file.name || "chatgpt.png");
+  try {
+    const r = await api("POST", `/api/projects/${W.proj.id}/gptsheet/${sid}/import`, fd);
+    const ok = r.results.filter((x) => x.ok).length;
+    if (box) box.innerHTML = `
+      ${r.warnings.map((w) => `<p class="small" style="color:var(--warn)">${esc(w)}</p>`).join("")}
+      <p class="small">Đã nhập ${ok}/${r.results.length} asset${r.alpha ? " (ảnh có nền trong suốt)" : ""}.
+        Mỗi asset có thêm phiên bản “ChatGPT”; xem lại ở tab Chi tiết, chạy QA nếu cần.</p>
+      <div class="csThumbs">${r.results.map((x) => `<div class="${x.ok ? "" : "bad"}">
+        ${x.ok ? `<img src="/files/${W.proj.id}/${x.file}?t=${Date.now()}">` : `<span>✗</span>`}
+        <small>${esc(x.name)}${x.ok ? "" : " – " + esc(x.error)}</small></div>`).join("")}</div>`;
+    const s = CS.sheets.find((x) => x.id === sid);
+    if (s) s.imported = Date.now() / 1000;
+    toast(`Đã nhập ${ok}/${r.results.length} asset từ ChatGPT`);
+    await refresh();
+  } catch (e) {
+    if (box) box.innerHTML = `<p class="small" style="color:var(--bad)">${esc(e.message)}</p>`;
+    toast(e.message, true);
+  }
+}

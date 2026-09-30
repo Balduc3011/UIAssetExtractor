@@ -147,3 +147,27 @@ label.chk input { width: auto; }
 .toast.err { border-left-color: var(--bad); }
 .exports li { margin: 6px 0; }
 kbd { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+
+/* ChatGPT sheet modal */
+.modal { position: fixed; inset: 0; background: #000a; z-index: 70; display: flex; justify-content: center;
+  align-items: flex-start; overflow: auto; padding: 32px 16px; }
+.mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; width: min(980px, 100%);
+  padding: 14px 16px; box-shadow: 0 12px 40px #000a; }
+.mhead { display: flex; align-items: center; gap: 10px; }
+.mhead button { margin-left: auto; }
+.csHelp { margin: 8px 0 12px; padding-left: 20px; }
+.cs { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-top: 10px; }
+.cs.on { border-color: var(--accent); }
+.csTop { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; }
+.csTop img { width: 100%; max-height: 440px; object-fit: contain; border-radius: 6px; display: block;
+  background: var(--bg); }
+.csNames { margin: 6px 0; max-height: 150px; overflow: auto; }
+.csPrompt { width: 100%; height: 110px; margin-top: 8px; font-size: 12px; box-sizing: border-box; }
+.csDrop { display: block; padding: 16px; margin-top: 8px; }
+.csThumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.csThumbs > div { width: 96px; text-align: center; }
+.csThumbs img { width: 96px; height: 72px; object-fit: contain; border-radius: 4px;
+  background: repeating-conic-gradient(#2a2d35 0 25%, #1c1e24 0 50%) 0 0 / 12px 12px; }
+.csThumbs small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csThumbs .bad { color: var(--bad); }
+@media (max-width: 700px) { .csTop { grid-template-columns: 1fr; } }

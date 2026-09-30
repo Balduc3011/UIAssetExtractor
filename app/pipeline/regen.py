@@ -100,6 +100,7 @@ def run(pid, params, ctx):
     src = Image.open(store.pdir(pid) / "source.png")
     retries = int(s["max_regen_retries"])
     th = float(s["qa_threshold"])
+    ok, last_err = 0, ""
     for i, aid in enumerate(ids):
         proj = store.load(pid)
         a = store.get_asset(proj, aid)
@@ -112,10 +113,18 @@ def run(pid, params, ctx):
             try:
                 ver = regen_one(pid, a, proj, src, hint)
             except Exception as e:
-                ctx.log(f"{a['name']}: {e}")
-                if "giới hạn" in str(e):
+                msg = str(e)
+                ctx.log(f"{a['name']}: {msg}")
+                last_err = msg
+                if "insufficient_quota" in msg or "credit_balance_exhausted" in msg:
+                    raise RuntimeError("Tài khoản OpenAI đã hết credit – nạp thêm tại "
+                                       "platform.openai.com/settings/organization/billing")
+                if "invalid_api_key" in msg or "Error code: 401" in msg:
+                    raise RuntimeError("OpenAI API key không hợp lệ (vào Settings nhập lại).")
+                if "giới hạn" in msg:
                     raise
                 break
+            ok += 1
 
             def f(p, ver=ver):
                 t = store.get_asset(p, aid)
@@ -135,4 +144,6 @@ def run(pid, params, ctx):
             ctx.log(f"{a['name']}: {q['score']}/10 → thử lại ({attempt}/{retries})")
             proj = store.load(pid)
             a = store.get_asset(proj, aid)
-    ctx.progress(1, 1, f"Đã tạo lại {len(ids)} asset")
+    if ok == 0:
+        raise RuntimeError(f"Không vẽ lại được asset nào. {last_err}")
+    ctx.progress(1, 1, f"Đã tạo lại {ok}/{len(ids)} asset")
