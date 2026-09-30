@@ -22,6 +22,7 @@ Tool UIAssetExtractor (web local của người dùng) ở chế độ "Claude a
 
 - Badge/sticker đè lên icon ("!", "NEW", "200%") là asset riêng, z cao hơn.
 - Icon và name plate bên dưới là 2 asset riêng; plate: remove_text=true, nine_slice=true.
-- Nút có chữ: remove_text=true. Chữ nằm trực tiếp trên nền: type "text", export=false.
-- Quảng cáo, thanh hệ thống, phần tử bị cắt mép ảnh, hoạ tiết nền: keep=false.
+- KHÔNG asset nào giữ chữ/số vẽ trên nó (nhãn, bộ đếm, số "4" trên trái tim...): remove_text=true và ghi khung từng dòng chữ vào `text_boxes` (chuẩn hoá 0–1000 theo group_i.png, hoặc theo toàn ảnh nếu phần tử nằm trong "missing"), khung rộng hơn chữ một chút. Ngoại lệ: chữ là chính hình vẽ của logo (icon "ADS") thì giữ. Chữ nằm trực tiếp trên nền: type "text", export=false.
+- Quảng cáo, thanh hệ thống, phần tử bị cắt mép ảnh, hoạ tiết nền, vùng chỉ có chữ, vùng trùng vùng khác: keep=false.
+- Vùng có thể lồng nhau (bar chứa icon): liệt kê cả container (nine_slice) lẫn phần tử con; trùng lặp được tool tự gộp.
 - bbox ôm sát pixel; description mô tả hình dạng/màu/viền đủ để vẽ lại, không nhắc nội dung chữ.

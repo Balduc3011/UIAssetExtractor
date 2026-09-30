@@ -34,6 +34,8 @@ DEFAULTS = {
     "atlas_max_size": 2048,
     "atlas_padding": 2,
     "skip_duplicates": True,
+    "compact_nine_slice": True,
+    "strip_all_text": True,             # never keep text / numbers on exported art         # export 9-slice sprites with the middle collapsed
 }
 
 _lock = threading.Lock()

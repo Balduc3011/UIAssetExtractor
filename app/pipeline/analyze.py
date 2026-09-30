@@ -7,7 +7,7 @@ from .. import store
 from ..config import load_settings
 from .ai import claude_json, img_block
 from .detect import snap_box
-from .imgutil import clamp_box, draw_grid, draw_marks, inter_frac, pad_box, upscale_for_view
+from .imgutil import clamp_box, draw_grid, draw_marks, inter_frac, iou, pad_box, upscale_for_view
 
 TYPES = ["icon", "button", "panel", "label_plate", "badge", "frame", "bar", "currency",
          "avatar", "decoration", "background", "text", "other"]
@@ -20,7 +20,9 @@ SYSTEM = (
 GLOBAL_PROMPT = """This is a game UI screenshot. Candidate regions are drawn as numbered boxes.
 Tasks:
 1. For each numbered box decide keep=true if it contains game UI art worth exporting,
-   keep=false for ads, OS/system bars, or pure backdrop.
+   keep=false for ads, OS/system bars, pure backdrop, boxes that contain only text, and
+   boxes that are just a duplicate of another box. Boxes can be nested (a bar and the
+   icons on it): keep both levels when both hold art.
 2. Give each kept box a short snake_case label (e.g. "shop_gift_button").
 3. List clearly visible UI elements NOT covered by any box in "missing", with bbox as
    [x0,y0,x1,y1] normalized 0-1000 over the full image.
@@ -36,10 +38,16 @@ image 2 is the same crop with a 0-1000 normalized coordinate grid.
 Split it into separate reusable sprite assets, the way an artist would deliver them:
 - a badge/sticker ("!", "NEW", "200%") overlapping an icon is its OWN asset
 - an icon and the name plate below it are separate assets
-- a button base is exported WITHOUT its text (remove_text=true); text is rendered by the engine
+- NO asset keeps text, letters or numbers drawn on it (labels, counters, the "4" on a heart,
+  "x2" on a badge...): set remove_text=true and give each text line's box in text_boxes;
+  text is rendered by the engine. Exception: lettering that IS the artwork of a logo icon
+  (a big "ADS" logo) stays
 - plates/panels/bars that stretch should be nine_slice=true
 - pure text on the backdrop: type "text", export=false
 - identical repeated pieces still get listed (duplicates are merged later)
+- if this region is a container (bar/panel) whose inner elements are clearly separate
+  pieces, list the container's own art (the bar/panel itself, with nine_slice) AND the
+  inner elements; duplicates across regions are merged later
 Coordinates: bbox = [x0,y0,x1,y1] normalized 0-1000 relative to THIS crop, tight around
 the element's visible pixels. z = stacking order (higher = drawn on top).
 description = precise visual description (shape, colors, outline, material) so an
@@ -47,7 +55,8 @@ artist could redraw it identically, WITHOUT mentioning the text content.
 
 Return JSON: {{"parts": [{{"name": "snake_case", "type": one of {types},
  "bbox": [x0,y0,x1,y1], "z": 0, "export": true, "has_text": false, "text": "",
- "remove_text": false, "nine_slice": false, "description": "..."}}]}}"""
+ "remove_text": false, "text_boxes": [[x0,y0,x1,y1]], "nine_slice": false,
+ "description": "..."}}]}}"""
 
 
 def _norm_to_px(nb, region):
@@ -148,10 +157,17 @@ tách screenshot UI game thành các sprite asset. Làm ĐÚNG các bước:
    Ghi một lần, đầy đủ. Tool đang chờ file này và sẽ tự chạy tiếp.
 
 ## Quy tắc tách (như artist giao sprite sheet)
-- keep=false cho: quảng cáo, thanh hệ thống, vùng chỉ là nền.
+- keep=false cho: quảng cáo, thanh hệ thống, vùng chỉ là nền, vùng chỉ có chữ, phần tử bị cắt
+  mép ảnh, vùng trùng hệt vùng khác.
+- Các vùng có thể lồng nhau (thanh bar và các icon trên nó): liệt kê bản thân container
+  (bar/panel, nine_slice) và các phần tử con; trùng lặp giữa các vùng sẽ được gộp sau.
 - Badge/sticker đè lên icon ("!", "NEW", "200%") là asset RIÊNG, z cao hơn icon.
 - Icon và bảng tên (name plate) bên dưới là 2 asset riêng.
-- Nút/bảng có chữ: remove_text=true (chữ do engine render); plate/bar/panel kéo giãn được: nine_slice=true.
+- KHÔNG asset nào được giữ chữ hoặc số vẽ trên nó (nhãn, bộ đếm, số "4" trên trái tim, "x2" trên
+  badge...): remove_text=true và ghi khung từng dòng chữ vào text_boxes (chuẩn hoá 0–1000 theo
+  ảnh group_i.png, như bbox; với "missing" thì theo toàn ảnh), khung rộng hơn chữ một chút.
+  Ngoại lệ: chữ là chính hình vẽ của logo (icon "ADS") thì giữ. Chữ do engine render.
+- Plate/bar/panel kéo giãn được: nine_slice=true.
 - Chữ nằm trực tiếp trên nền: type "text", export=false.
 - Các mảnh giống nhau lặp lại vẫn liệt kê (tool tự gộp trùng).
 - bbox = [x0,y0,x1,y1] chuẩn hoá 0–1000 THEO ẢNH group_i.png, ôm sát pixel của phần tử.
@@ -168,11 +184,13 @@ tách screenshot UI game thành các sprite asset. Làm ĐÚNG các bước:
       "parts": [
         {{"name": "snake_case", "type": "icon", "bbox": [x0,y0,x1,y1], "z": 0,
           "export": true, "has_text": false, "text": "", "remove_text": false,
+          "text_boxes": [[x0,y0,x1,y1]],
           "nine_slice": false, "description": "..."}}
       ]}}
   ],
   "missing": [
     {{"name": "snake_case", "type": "icon", "bbox": [x0,y0,x1,y1], "z": 0,
+      "remove_text": false, "text_boxes": [], "nine_slice": false,
       "description": "phần tử UI rõ ràng KHÔNG nằm trong vùng nào; bbox chuẩn hoá 0–1000 theo screen_marked.png"}}
   ]
 }}
@@ -235,12 +253,22 @@ def _build(pid, src, rgb, results, g, ctx):
             except Exception:
                 continue
             b = clamp_box(snap_box(rgb, b), W, H)
+            # nested regions can yield the same element twice
+            if any(iou(b, o["bbox"]) > 0.8 for o in assets):
+                continue
             name = _uniq(str(p.get("name") or "asset"), used)
             t = p.get("type") if p.get("type") in TYPES else "other"
+            ai_tb = []
+            for tb in p.get("text_boxes") or []:
+                try:
+                    ai_tb.append(clamp_box(_norm_to_px(tb, region), W, H))
+                except Exception:
+                    pass
             a = store.make_asset(
                 name=name, type=t, bbox=b, z=int(p.get("z") or 0),
                 keep=bool(p.get("export", t != "text")) and t != "text",
-                remove_text=bool(p.get("remove_text")), nine_slice=bool(p.get("nine_slice")),
+                remove_text=bool(p.get("remove_text")) or bool(ai_tb) or bool(p.get("has_text")),
+                nine_slice=bool(p.get("nine_slice")), ai_text_boxes=ai_tb,
                 description=str(p.get("description") or ""), text=str(p.get("text") or ""),
                 group=reg["label"],
             )

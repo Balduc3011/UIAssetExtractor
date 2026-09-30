@@ -3,10 +3,12 @@ import json
 import time
 import zipfile
 
+import numpy as np
 from PIL import Image
 
 from .. import store
 from ..config import load_settings
+from . import refine
 
 
 def asset_image(pid, a, scale: float) -> Image.Image:
@@ -29,6 +31,7 @@ def run(pid, params, ctx):
     maxsz = int(params.get("max_size") or s["atlas_max_size"])
     pad = int(s["atlas_padding"])
     skip_dup = bool(params.get("skip_duplicates", s["skip_duplicates"]))
+    compact = bool(params.get("compact_nine_slice", s.get("compact_nine_slice", True)))
     proj = store.load(pid)
     items = [a for a in proj["assets"] if a["keep"] and a["active"] is not None
              and not (skip_dup and a["dup_of"])]
@@ -52,6 +55,16 @@ def run(pid, params, ctx):
     for i, a in enumerate(items):
         ctx.progress(i, len(items) * 2, f"Chuẩn bị {a['name']}")
         im = asset_image(pid, a, scale)
+        a["_borders"] = None
+        if a["nine_slice"] and a["type"] != "background":
+            arr = np.array(im)
+            if compact:
+                arr, b = refine.compact_nine_slice(arr)
+                im = Image.fromarray(arr)
+            else:
+                b = refine.nine_slice(arr)
+                b = b and {k: b[k] for k in ("l", "t", "r", "b")}
+            a["_borders"] = b
         imgs[a["id"]] = im
         im.save(out / "sprites" / f"{a['name']}.png")
         if a["type"] != "background":
@@ -105,11 +118,8 @@ def run(pid, params, ctx):
                       "spriteSourceSize": {"x": 0, "y": 0, "w": im.width, "h": im.height},
                       "sourceSize": {"w": im.width, "h": im.height},
                       "pivot": {"x": 0.5, "y": 0.5}}
-                if a.get("borders") and a["nine_slice"]:
-                    k = scale
-                    b = a["borders"]
-                    fr["borders"] = {"l": round(b["l"] * k), "t": round(b["t"] * k),
-                                     "r": round(b["r"] * k), "b": round(b["b"] * k)}
+                if a.get("_borders"):
+                    fr["borders"] = a["_borders"]
                 frames[f"{a['name']}.png"] = fr
             name = f"atlas_{bi}.png"
             sheet.save(out / name)
@@ -126,7 +136,7 @@ def run(pid, params, ctx):
         "not_in_atlas": [a["name"] for a in too_big],
         "assets": [{"name": a["name"], "type": a["type"], "text": a["text"],
                     "source_bbox": a["bbox"], "nine_slice": a["nine_slice"],
-                    "borders": a["borders"], "file": f"sprites/{a['name']}.png"}
+                    "borders": a.get("_borders"), "file": f"sprites/{a['name']}.png"}
                    for a in items],
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False), "utf-8")

@@ -75,8 +75,7 @@ def regen_one(pid, a, proj, src, hint=""):
         scale = 2.0
     else:
         ref, size = _reference(src, a)
-        text = "- absolutely no text, letters or numbers\n" if (a["remove_text"] or a["type"] in (
-            "button", "label_plate", "panel", "bar")) else ""
+        text = "- absolutely no text, letters or numbers anywhere on the element\n"
         occl = (" — reconstruct parts hidden by overlapping elements in the reference"
                 if a.get("occluded", 0) > 0.01 else "")
         prompt = PROMPT.format(name=a["name"].replace("_", " "), type=a["type"],

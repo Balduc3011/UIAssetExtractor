@@ -5,31 +5,77 @@ import numpy as np
 from .imgutil import background_estimate, foreground_map, iou
 
 
-def detect_groups(rgb: np.ndarray, min_frac=0.0006, max_frac=0.5) -> list[list[int]]:
+def _fgmap(rgb: np.ndarray) -> np.ndarray:
+    """Pixels that differ from the (large-scale) backdrop or sit on strong edges.
+    The backdrop is estimated on a downscaled copy so big panels/gradients/patterns
+    are treated as backdrop, not foreground."""
     H, W = rgb.shape[:2]
-    bg = background_estimate(rgb)
-    m = foreground_map(rgb, bg)
-    k = max(3, round(min(W, H) / 120)) | 1
+    small = cv2.resize(rgb, (max(8, W // 4), max(8, H // 4)), interpolation=cv2.INTER_AREA)
+    k = max(15, (min(small.shape[:2]) // 6) | 1)
+    bg = cv2.resize(cv2.medianBlur(small, min(k, 255)), (W, H), interpolation=cv2.INTER_LINEAR)
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    lb = cv2.cvtColor(bg, cv2.COLOR_RGB2LAB).astype(np.float32)
+    diff = np.linalg.norm(lab - lb, axis=2)
+    edges = cv2.Canny(cv2.GaussianBlur(rgb, (5, 5), 0), 90, 200)
+    return ((diff > 30) | (edges > 0)).astype(np.uint8)
+
+
+def _components(m, W, H, min_frac, off=(0, 0)):
+    n, _, st, _ = cv2.connectedComponentsWithStats(m, 8)
+    out = []
+    for i in range(1, n):
+        x, y, w, h, _ = st[i]
+        if w * h < min_frac * W * H or w < 6 or h < 6:
+            continue
+        out.append([int(x) + off[0], int(y) + off[1], int(w), int(h)])
+    return out
+
+
+def _ell(k):
+    k = max(3, int(k)) | 1
+    return cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+
+
+def detect_groups(rgb: np.ndarray, min_frac=0.0006, max_frac=0.6) -> list[list[int]]:
+    """Candidate UI regions. Big regions (panels, bars, overlapping stacks) are kept and
+    their inner elements are added as separate candidates, so the AI step can label
+    both levels."""
+    H, W = rgb.shape[:2]
+    s = min(W, H)
+    m = _fgmap(rgb)
+    k = max(3, int(s / 150)) | 1
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8), iterations=2)
-    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    cnts, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    boxes = []
-    for c in cnts:
-        x, y, w, h = cv2.boundingRect(c)
-        a = w * h
-        if a < min_frac * W * H or a > max_frac * W * H:
-            continue
-        if w < 6 or h < 6:
-            continue
-        boxes.append([x, y, w, h])
-    # drop near-duplicates
-    boxes.sort(key=lambda b: -b[2] * b[3])
+    # solid silhouettes (holes filled)
+    ff = m.copy()
+    cv2.floodFill(ff, np.zeros((H + 2, W + 2), np.uint8), (0, 0), 1)
+    solid = m | (ff == 0).astype(np.uint8)
+    kb = max(5, int(s * 0.025))
+    # opening breaks thin connectors (rails, lines) between elements
+    boxes = _components(cv2.morphologyEx(solid, cv2.MORPH_OPEN, _ell(kb)), W, H, min_frac)
     out = []
     for b in boxes:
-        if all(iou(b, o) < 0.85 for o in out):
-            out.append(b)
-    out.sort(key=lambda b: (b[1] // 40, b[0]))
-    return out
+        x, y, w, h = b
+        if w * h > max_frac * W * H:
+            continue
+        out.append(b)
+        if w * h > 0.04 * W * H:
+            # large region: also propose what's inside it
+            sub_s = solid[y:y + h, x:x + w]
+            kids = _components(cv2.morphologyEx(sub_s, cv2.MORPH_OPEN, _ell(max(kb + 2, s * 0.05))),
+                               W, H, min_frac, (x, y))
+            sub_m = m[y:y + h, x:x + w]
+            kids += _components(cv2.morphologyEx(sub_m, cv2.MORPH_OPEN, _ell(kb)),
+                                W, H, min_frac, (x, y))
+            for c in kids:
+                if c[2] * c[3] < 0.6 * w * h:
+                    out.append(c)
+    out.sort(key=lambda b: -b[2] * b[3])
+    res = []
+    for b in out:
+        if all(iou(b, o) < 0.8 for o in res):
+            res.append(b)
+    res.sort(key=lambda b: (b[1] // 40, b[0]))
+    return res[:80]
 
 
 def run_ocr(rgb: np.ndarray) -> list[dict]:
@@ -42,6 +88,9 @@ def run_ocr(rgb: np.ndarray) -> list[dict]:
     if r is None or r.boxes is None:
         return res
     for box, txt, sc in zip(r.boxes, r.txts, r.scores):
+        # low-confidence reads are usually shapes (a padlock read as "8")
+        if float(sc) < 0.8 or not any(ch.isalnum() for ch in str(txt)):
+            continue
         pts = np.array(box)
         x0, y0 = pts.min(0)
         x1, y1 = pts.max(0)

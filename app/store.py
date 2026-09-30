@@ -23,6 +23,7 @@ ASSET_DEFAULTS = {
     "description": "",
     "text": "",
     "text_boxes": [],
+    "ai_text_boxes": [],
     "status": "new",             # new | extracted | regenerated | error
     "versions": [],              # [{file, kind: extract|regen, w, h, scale, created}]
     "active": None,              # index into versions

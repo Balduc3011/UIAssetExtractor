@@ -199,6 +199,7 @@ async function renderSettings() {
         <select data-k="matte_method">${opt([["grabcut", "GrabCut (nhanh, không cần GPU)"], ["ai", "AI (rembg)"], ["none", "Không tách"]], s.matte_method)}</select></label>
       <label class="row"><span>Model tách nền AI</span>
         <select data-k="ai_matte_model">${opt([["isnet-general-use", "ISNet (nhẹ ~180MB)"], ["birefnet-general-lite", "BiRefNet lite (~220MB)"], ["birefnet-general", "BiRefNet (~900MB, nặng)"], ["u2net", "U2Net"]], s.ai_matte_model)}</select></label>
+      <label class="row"><span>Luôn xoá chữ / số trên asset</span><select data-k="strip_all_text">${opt([["true", "Có (khuyến nghị)"], ["false", "Chỉ khi asset bật Xoá chữ"]], s.strip_all_text)}</select></label>
       <h3>Chất lượng & chi phí</h3>
       <label class="row"><span>Ngưỡng QA (0-10)</span><input type="number" min="0" max="10" data-k="qa_threshold" value="${s.qa_threshold}"></label>
       <label class="row"><span>Tự QA sau khi vẽ lại</span><select data-k="auto_qa_after_regen">${opt([["true", "Có"], ["false", "Không"]], s.auto_qa_after_regen)}</select></label>
@@ -692,6 +693,7 @@ function renderExport(pane) {
     <label class="row"><span>Scale</span><select id="exScale">${[1, 2, 3, 4].map((v) => `<option ${v == s.export_scale ? "selected" : ""}>${v}</option>`).join("")}</select></label>
     <label class="row"><span>Atlas tối đa</span><select id="exMax">${[1024, 2048, 4096].map((v) => `<option ${v == s.atlas_max_size ? "selected" : ""}>${v}</option>`).join("")}</select></label>
     <label class="chk"><input type="checkbox" id="exDup" ${s.skip_duplicates ? "checked" : ""}> Bỏ asset trùng lặp</label>
+    <label class="chk"><input type="checkbox" id="exCompact" ${s.compact_nine_slice !== false ? "checked" : ""}> Thu gọn 9-slice (cắt phần giữa kéo giãn, như sprite artist giao)</label>
     <p class="small muted">Scale tính theo kích thước trên ảnh gốc. Asset vẽ lại bằng GPT có độ phân giải cao nên scale lớn vẫn nét; asset chỉ cắt sẽ được phóng to.</p>
     <div class="actions"><button class="btn primary" id="doExport">Export sprite sheet + PNG</button></div>
     <h3>Lịch sử export</h3>
@@ -702,7 +704,8 @@ function renderExport(pane) {
       ${e.atlases.map((f) => `<a class="btn sm ghost" target="_blank" href="/files/${p.id}/${e.folder}/${f}">${f}</a>`).join("")}
     </li>`).join("") || `<li class="muted">Chưa có</li>`}</ul>`;
   $("#doExport").onclick = () => startJob(p.id, "export", {
-    scale: Number($("#exScale").value), max_size: Number($("#exMax").value), skip_duplicates: $("#exDup").checked });
+    scale: Number($("#exScale").value), max_size: Number($("#exMax").value), skip_duplicates: $("#exDup").checked,
+    compact_nine_slice: $("#exCompact").checked });
   $$("[data-open]").forEach((b) => (b.onclick = () =>
     api("POST", `/api/projects/${p.id}/open-folder`, { path: b.dataset.open }).catch((e) => toast(e.message, true))));
 }

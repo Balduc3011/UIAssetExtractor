@@ -13,7 +13,7 @@ RIGHT = the extracted/redrawn asset on a checkerboard (checkerboard = transparen
 Expected per asset is given in its caption. Judge each RIGHT image as a production sprite:
 - same shape / colors / style as LEFT (ignore other UI pieces that overlap in LEFT)
 - complete (nothing cut off, no holes), clean transparent edges, no leftover backdrop
-- no text if caption says "no text"; no extra elements (badges etc.) unless expected
+- no text if caption says "no text" (any leftover letters/digits: score at most 4); no extra elements (badges etc.) unless expected
 Score 0-10 (10 = ship it). recommend: "ok" | "reextract" (local cleanup could fix) |
 "regenerate" (needs redraw). hint = one short instruction to fix it when redrawing.
 Return JSON: {"results": [{"id": "...", "score": 0, "issues": ["..."], "recommend": "ok", "hint": ""}]}"""
@@ -54,7 +54,7 @@ caro (caro = trong suốt). Danh sách asset và yêu cầu mong đợi:
 
 Tiêu chí: giống bản gốc về hình/màu/style (bỏ qua phần UI khác đè lên ở bản gốc),
 đầy đủ không bị cắt/thủng, viền trong suốt sạch, không còn nền, không chữ nếu yêu cầu
-"no text", không thừa phần tử khác. Điểm 0–10 (10 = dùng được ngay).
+"no text" (còn bất kỳ chữ/số nào trên asset thì tối đa 4 điểm), không thừa phần tử khác. Điểm 0–10 (10 = dùng được ngay).
 recommend: "ok" | "reextract" (xử lý local sửa được) | "regenerate" (cần vẽ lại).
 hint: 1 câu ngắn (tiếng Anh) hướng dẫn sửa khi vẽ lại.
 
@@ -74,7 +74,7 @@ def _items(pid, ids):
         if p is None:
             continue
         exp = [a["type"]]
-        if a["remove_text"]:
+        if a["remove_text"] or load_settings().get("strip_all_text", True):
             exp.append("no text")
         cap = (f'id={a["id"]} name={a["name"]} expected: {", ".join(exp)}; '
                f'{a["description"][:200]}')
