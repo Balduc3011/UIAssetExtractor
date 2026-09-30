@@ -1,0 +1,14 @@
+# Core (ONNX Runtime is installed separately by setup.bat: GPU or CPU build)
+fastapi~=0.142
+uvicorn~=0.54
+python-multipart~=0.0.32
+numpy>=2.3,<3
+opencv-python>=4.10
+pillow>=12
+rembg~=2.0.85
+rapidocr~=3.9
+imagehash~=4.3
+rectpack~=0.2.2
+anthropic>=1.9
+openai>=3.22
+keyring~=25.7

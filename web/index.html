@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI Asset Extractor</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/">UI Asset Extractor</a>
+  <nav>
+    <a href="#/" data-nav="home">Projects</a>
+    <a href="#/settings" data-nav="settings">Settings</a>
+  </nav>
+  <div id="keyStatus" class="keystatus"></div>
+</header>
+<main id="view"></main>
+<div id="jobbar" class="jobbar hidden">
+  <div class="jobtext"><b id="jobKind"></b> <span id="jobMsg"></span></div>
+  <div class="progress"><div id="jobProg"></div></div>
+  <button id="jobCancel" class="btn sm ghost">Huỷ</button>
+</div>
+<div id="toast" class="toast"></div>
+<script src="/web/app.js"></script>
+</body>
+</html>

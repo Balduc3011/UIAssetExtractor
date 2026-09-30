@@ -1,0 +1,25 @@
+# Moi truong Python + thu vien (setup.bat tu tao lai)
+.runtime/
+
+# Du lieu nguoi dung: project, anh, export, settings, cowork tasks, secrets du phong
+data/
+
+# Model AI tai ve (tu tai lai khi can)
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Bi mat / log
+.env
+*.log
+
+# He dieu hanh / editor
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
